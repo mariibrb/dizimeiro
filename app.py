@@ -4,9 +4,10 @@ import xml.etree.ElementTree as ET
 import io
 import re
 import zipfile
+import unicodedata
 
 # --- CONFIGURAÇÕES DO PERSONAGEM ---
-# Nome: Dizimeiro (Versão Estável)
+# Nome: Dizimeiro (Versão Estável com Correção de Encoding e Cruzamento)
 
 ALIQUOTAS_INTERNAS = {
     'AC': 19.0, 'AL': 19.0, 'AM': 20.0, 'AP': 18.0, 'BA': 20.5, 'CE': 20.0, 'DF': 20.0,
@@ -16,6 +17,13 @@ ALIQUOTAS_INTERNAS = {
 }
 
 ESTADOS_BASE_DUPLA = ['MG', 'PR', 'RS', 'SC', 'SP', 'BA', 'PE', 'GO', 'MS', 'AL', 'SE']
+
+def normalizar_texto(txt):
+    if pd.isna(txt): return ""
+    txt = str(txt)
+    # Remove acentos e caracteres especiais para comparação robusta
+    txt = unicodedata.normalize('NFKD', txt).encode('ASCII', 'ignore').decode('ASCII')
+    return txt.upper().strip()
 
 def limpar_cnpj(texto):
     if pd.isna(texto): return ""
@@ -27,7 +35,7 @@ def extrair_xmls_recursivo(uploaded_file):
         try:
             with zipfile.ZipFile(file_obj) as z:
                 for name in z.namelist():
-                    if name.startswith('__MACOSX'): continue # Pula lixo de Mac
+                    if name.startswith('__MACOSX'): continue 
                     content = z.read(name)
                     if name.lower().endswith('.xml'):
                         xml_contents.append(io.BytesIO(content))
@@ -76,9 +84,9 @@ def extrair_dados_xml_agrupados(xml_io):
             vContabil_item = vProd + vIPI + vFrete + vOutro + vSeg - vDesc
             
             icms_node = imposto.find('.//nfe:ICMS/*', ns)
-            pICMS = float(icms_node.find('nfe:pICMS', ns).text) if icms_node.find('nfe:pICMS', ns) is not None and icms_node.find('nfe:pICMS', ns).text else 0.0
-            vICMS = float(icms_node.find('nfe:vICMS', ns).text) if icms_node.find('nfe:vICMS', ns) is not None and icms_node.find('nfe:vICMS', ns).text else 0.0
-            vICMSST = float(icms_node.find('nfe:vICMSST', ns).text) if icms_node.find('nfe:vICMSST', ns) is not None and icms_node.find('nfe:vICMSST', ns).text else 0.0
+            pICMS = float(icms_node.find('nfe:pICMS', ns).text) if icms_node is not None and icms_node.find('nfe:pICMS', ns) is not None and icms_node.find('nfe:pICMS', ns).text else 0.0
+            vICMS = float(icms_node.find('nfe:vICMS', ns).text) if icms_node is not None and icms_node.find('nfe:vICMS', ns) is not None and icms_node.find('nfe:vICMS', ns).text else 0.0
+            vICMSST = float(icms_node.find('nfe:vICMSST', ns).text) if icms_node is not None and icms_node.find('nfe:vICMSST', ns) is not None and icms_node.find('nfe:vICMSST', ns).text else 0.0
             
             if cfop not in resumo_cfop:
                 resumo_cfop[cfop] = {
@@ -101,7 +109,8 @@ def calcular_dizimo(row, regime, uf_destino):
     try:
         if row['V_ST_Nota'] > 0.1: return 0.0, "ST Já Recolhida"
         cfops_difal = ['1556', '2556', '1407', '2407', '1551', '2551', '1406', '2406']
-        if row['CFOP_Limpo'] not in cfops_difal: return 0.0, "Não sujeito"
+        cfop_limpo = str(row['CFOP_Limpo'])
+        if cfop_limpo not in cfops_difal: return 0.0, "Não sujeito"
         
         aliq_int = ALIQUOTAS_INTERNAS[uf_destino] / 100
         aliq_ori = row['Aliq_Inter'] / 100
@@ -124,6 +133,7 @@ def main():
     st.title("💰 O Dizimeiro")
     
     with st.sidebar:
+        st.header("📜 Configurações")
         cnpj_input = st.text_input("Seu CNPJ (Destinatário)", key="cnpj_alvo")
         meu_regime = st.selectbox("Seu Regime", ["Regime Normal", "Simples Nacional"])
         minha_uf = st.selectbox("Sua UF", list(ALIQUOTAS_INTERNAS.keys()), index=25)
@@ -133,53 +143,85 @@ def main():
     up_files = st.file_uploader("📁 XMLs ou ZIPs (Matriosca)", type=['xml', 'zip'], accept_multiple_files=True)
 
     if up_csv and up_files and cnpj_alvo:
-        df_rel = pd.read_csv(up_csv, sep=';', encoding='latin-1', skiprows=5)
-        df_rel = df_rel[df_rel['Nota'].notna() & (~df_rel['Fornecedor'].str.contains('Total', na=False))]
-        df_rel['Nota_Rel'] = pd.to_numeric(df_rel['Nota'], errors='coerce')
-        df_rel['CFOP_Limpo'] = df_rel['CFOP'].str.replace('-', '').str.strip()
-        df_rel['V_Contabil_Rel'] = df_rel['Valor Contábil'].astype(str).str.replace('.', '').str.replace(',', '.').astype(float)
-        
-        base_xml = []
-        all_xml_ios = []
-        for f in up_files:
-            all_xml_ios.extend(extrair_xmls_recursivo(f))
+        try:
+            # Tratamento de encoding para o CSV
+            raw_data = up_csv.read()
+            try:
+                content = raw_data.decode('utf-8')
+            except:
+                content = raw_data.decode('latin-1')
             
-        for xml_io in all_xml_ios:
-            base_xml.extend(extrair_dados_xml_agrupados(xml_io))
-        
-        df_xml = pd.DataFrame(base_xml)
-        
-        if not df_xml.empty:
-            df_xml['CNPJ_Dest_Limpo'] = df_xml['CNPJ_Dest'].apply(limpar_cnpj)
-            # Mostra no log do Streamlit para conferência se houver erro
-            if cnpj_alvo not in df_xml['CNPJ_Dest_Limpo'].unique():
-                st.warning(f"CNPJ digitado ({cnpj_alvo}) não encontrado nos XMLs. Encontrados: {df_xml['CNPJ_Dest_Limpo'].unique()}")
+            df_rel = pd.read_csv(io.StringIO(content), sep=';', skiprows=5)
+            
+            # Normalização de colunas para evitar KeyError
+            df_rel.columns = [normalizar_texto(c) for c in df_rel.columns]
+            
+            # Identificação dinâmica de colunas
+            col_vcontabil = next((c for c in df_rel.columns if "VALOR CONTABIL" in c), None)
+            col_nota = next((c for c in df_rel.columns if c == "NOTA"), None)
+            col_cfop = next((c for c in df_rel.columns if c == "CFOP"), None)
+            col_fornecedor = next((c for c in df_rel.columns if "FORNECEDOR" in c), None)
 
-            df_xml_filtered = df_xml[df_xml['CNPJ_Dest_Limpo'] == cnpj_alvo].copy()
+            if not col_vcontabil or not col_nota or not col_cfop:
+                st.error(f"Colunas essenciais não encontradas. Colunas lidas: {df_rel.columns.tolist()}")
+                return
 
-            if not df_xml_filtered.empty:
-                df_final = df_xml_filtered.merge(
-                    df_rel[['Nota_Rel', 'CFOP_Limpo', 'V_Contabil_Rel']], 
-                    left_on=['Nota', 'CFOP'], 
-                    right_on=['Nota_Rel', 'CFOP_Limpo'], 
-                    how='inner'
-                )
+            # Limpeza do Relatório
+            df_rel = df_rel[df_rel[col_nota].notna() & (~df_rel[col_fornecedor].str.contains('TOTAL', na=False, case=False))]
+            df_rel['Nota_Rel'] = pd.to_numeric(df_rel[col_nota], errors='coerce')
+            df_rel['CFOP_Limpo'] = df_rel[col_cfop].astype(str).str.extract(r'(\d{4})')
+            df_rel['V_Contabil_Rel'] = df_rel[col_vcontabil].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).astype(float)
+            
+            # Processamento de XMLs
+            base_xml = []
+            all_xml_ios = []
+            for f in up_files:
+                all_xml_ios.extend(extrair_xmls_recursivo(f))
+                
+            for xml_io in all_xml_ios:
+                base_xml.extend(extrair_dados_xml_agrupados(xml_io))
+            
+            df_xml = pd.DataFrame(base_xml)
+            
+            if not df_xml.empty:
+                df_xml['CNPJ_Dest_Limpo'] = df_xml['CNPJ_Dest'].apply(limpar_cnpj)
+                
+                # Debug de CNPJ caso não encontre nada
+                if cnpj_alvo not in df_xml['CNPJ_Dest_Limpo'].unique():
+                    st.warning(f"CNPJ digitado ({cnpj_alvo}) não encontrado nos XMLs.")
+                    st.info(f"CNPJs encontrados nos arquivos: {df_xml['CNPJ_Dest_Limpo'].unique().tolist()}")
 
-                if not df_final.empty:
-                    # CORREÇÃO DO KEYERROR: Usando apply de forma segura
-                    res_df = df_final.apply(lambda r: calcular_dizimo(r, meu_regime, minha_uf), axis=1)
-                    df_final['DIFAL_Recolher'] = [x[0] for x in res_df]
-                    df_final['Lógica'] = [x[1] for x in res_df]
+                df_xml_filtered = df_xml[df_xml['CNPJ_Dest_Limpo'] == cnpj_alvo].copy()
 
-                    st.success(f"Dízimo calculado para {len(df_final)} registros!")
-                    st.dataframe(df_final[['Nota', 'Fornecedor', 'CFOP', 'DIFAL_Recolher', 'Lógica']])
-                    st.metric("Total a Recolher", f"R$ {df_final['DIFAL_Recolher'].sum():,.2f}")
+                if not df_xml_filtered.empty:
+                    # Cruzamento Nota + CFOP
+                    df_final = df_xml_filtered.merge(
+                        df_rel[['Nota_Rel', 'CFOP_Limpo', 'V_Contabil_Rel']], 
+                        left_on=['Nota', 'CFOP'], 
+                        right_on=['Nota_Rel', 'CFOP_Limpo'], 
+                        how='inner'
+                    )
+
+                    if not df_final.empty:
+                        res_list = df_final.apply(lambda r: calcular_dizimo(r, meu_regime, minha_uf), axis=1)
+                        df_final['DIFAL_Recolher'] = [x[0] for x in res_list]
+                        df_final['Logica'] = [x[1] for x in res_list]
+
+                        st.success(f"Dízimo calculado para {len(df_final)} registros!")
+                        st.dataframe(df_final[['Nota', 'Fornecedor', 'CFOP', 'DIFAL_Recolher', 'Logica']])
+                        st.metric("Total a Recolher", f"R$ {df_final['DIFAL_Recolher'].sum():,.2f}")
+                        
+                        output = io.BytesIO()
+                        df_final.to_excel(output, index=False, engine='xlsxwriter')
+                        st.download_button("📥 Baixar Auditoria", output.getvalue(), "auditoria_dizimeiro.xlsx")
+                    else:
+                        st.error("XMLs lidos, mas não casaram com o Relatório (Verifique Nota e CFOP).")
                 else:
-                    st.error("XMLs lidos, mas não casaram com o Relatório (Verifique Nota e CFOP).")
+                    st.error(f"Nenhum XML com o CNPJ {cnpj_alvo} foi encontrado.")
             else:
-                st.error(f"Nenhum XML com o CNPJ {cnpj_alvo} foi encontrado.")
-        else:
-            st.error("Não foi possível extrair dados dos XMLs.")
+                st.error("Não foi possível extrair dados dos arquivos XML.")
+        except Exception as e:
+            st.error(f"Erro no processamento: {e}")
 
 if __name__ == "__main__":
     main()
