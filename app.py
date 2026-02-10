@@ -72,13 +72,9 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
         dest = root.find('.//nfe:dest', ns)
         dest_cnpj = limpar_cnpj(dest.find('nfe:CNPJ', ns).text) if dest is not None and dest.find('nfe:CNPJ', ns) is not None else ""
         
-        # --- VALIDAÇÃO DE TERCEIROS E FILIAIS ---
         raiz_alvo = obter_raiz_cnpj(cnpj_alvo)
         raiz_emitente = obter_raiz_cnpj(emit_cnpj)
         
-        # Só processa se:
-        # 1. O destino for você (CNPJ Alvo)
-        # 2. O emitente NÃO for você nem qualquer FILIAL sua (Raiz CNPJ diferente)
         if dest_cnpj != cnpj_alvo or raiz_emitente == raiz_alvo:
             return []
 
@@ -117,7 +113,6 @@ def calcular_dizimo_final(row, regime, uf_destino, usar_gerencial):
         if row['V_ST_Nota'] > 0.1: return 0.0, "Isento (ST na Nota)"
         if row['UF_Origem'] == uf_destino: return 0.0, "Isento (Interna)"
 
-        # Define Alíquota Interestadual via CST (Origem)
         if str(row['Origem_CST']) in ['1', '2', '3', '8']:
             aliq_inter = 0.04
             desc_ori = "Importado (4%)"
@@ -147,10 +142,99 @@ def calcular_dizimo_final(row, regime, uf_destino, usar_gerencial):
 
 def main():
     st.set_page_config(page_title="Dizimeiro 6.0", layout="wide")
-    st.title("💰 O Dizimeiro")
-    st.subheader("Auditoria de Terceiros: Filtro de Filiais e Especialista em CST")
+
+    # --- ESTILIZAÇÃO RIHANNA ---
+    st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800&display=swap');
+        
+        /* Fundo e Header */
+        .stApp {
+            background: radial-gradient(circle at top right, #FFDEEF 0%, #F8F9FA 100%);
+        }
+        header, .stDeployButton {
+            display: none !important;
+        }
+
+        /* Tipografia Global */
+        * {
+            font-family: 'Montserrat', sans-serif !important;
+            font-weight: 800 !important;
+        }
+
+        /* Título h1 */
+        h1 {
+            color: #FF69B4 !important;
+            text-align: center !important;
+            font-size: 3rem !important;
+            padding-bottom: 2rem !important;
+        }
+
+        /* Inputs e Selects */
+        .stTextInput input, .stSelectbox div[data-baseweb="select"] {
+            background-color: #FFFFFF !important;
+            border-radius: 12px !important;
+            border: 1px solid #FFDEEF !important;
+        }
+
+        /* Uploader */
+        section[data-testid="stFileUploadDropzone"] {
+            background-color: #FFFFFF !important;
+            border: 2px dashed #FF69B4 !important;
+            border-radius: 12px !important;
+        }
+        
+        /* Botão Browse Files */
+        section[data-testid="stFileUploadDropzone"] button {
+            background-color: #FF69B4 !important;
+            color: white !important;
+            font-size: 0.8rem !important;
+            text-transform: none !important;
+            border-radius: 8px !important;
+        }
+        section[data-testid="stFileUploadDropzone"] button::first-letter {
+            text-transform: uppercase;
+        }
+
+        /* Botões de Download e Ação */
+        .stButton button, .stDownloadButton button {
+            background-color: #FF69B4 !important;
+            color: white !important;
+            width: 100% !important;
+            border: none !important;
+            border-radius: 12px !important;
+            padding: 0.75rem !important;
+            text-transform: uppercase !important;
+            box-shadow: 0 4px 15px rgba(255, 105, 180, 0.3) !important;
+            transition: all 0.3s ease !important;
+        }
+        .stButton button:hover, .stDownloadButton button:hover {
+            transform: translateY(-3px) !important;
+            box-shadow: 0 6px 20px rgba(255, 105, 180, 0.5) !important;
+        }
+
+        /* Cards de Instrução */
+        .instruction-card {
+            background: rgba(255, 255, 255, 0.7);
+            border-left: 5px solid #FF69B4;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<h1>💰 O DIZIMEIRO</h1>", unsafe_allow_html=True)
+
+    # Estrutura de Tela: Cards de Instrução
+    col_inst1, col_inst2 = st.columns(2)
+    with col_inst1:
+        st.markdown('<div class="instruction-card">📜 <b>Passo 1:</b> Configure seu CNPJ e Regime na barra lateral para filtrar notas de terceiros e calcular a base correta.</div>', unsafe_allow_html=True)
+    with col_inst2:
+        st.markdown('<div class="instruction-card">📁 <b>Passo 2:</b> Suba seus arquivos XML ou ZIP (Matriosca). O sistema ignora automaticamente notas de suas filiais.</div>', unsafe_allow_html=True)
 
     with st.sidebar:
+        st.markdown("<h2 style='color:#FF69B4;'>REINO FISCAL</h2>", unsafe_allow_html=True)
         cnpj_input = st.text_input("Seu CNPJ (Destinatário)")
         meu_regime = st.selectbox("Regime Tributário", ["Simples Nacional", "Regime Normal"])
         minha_uf = st.selectbox("UF de Destino", list(ALIQUOTAS_INTERNAS.keys()), index=25)
@@ -187,12 +271,12 @@ def main():
             df_final['DIFAL_Recolher'] = [x[0] for x in res]
             df_final['Analise'] = [x[1] for x in res]
 
-            st.metric("Total de Dízimo Externo", f"R$ {df_final['DIFAL_Recolher'].sum():,.2f}")
+            st.markdown(f"<h2 style='text-align:center; color:#FF69B4;'>TOTAL: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
             st.dataframe(df_final[df_final['DIFAL_Recolher'] > 0][['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
             
             out = io.BytesIO()
             df_final.to_excel(out, index=False)
-            st.download_button("📥 Baixar Auditoria", out.getvalue(), "Auditoria_Dizimeiro_Final.xlsx")
+            st.download_button("📥 BAIXAR AUDITORIA COMPLETA", out.getvalue(), "Auditoria_Dizimeiro_Rihanna.xlsx")
         except Exception as e: st.error(f"Erro: {e}")
 
 if __name__ == "__main__":
