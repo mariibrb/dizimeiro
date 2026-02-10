@@ -141,35 +141,53 @@ def extrair_xmls_recursivo(uploaded_file):
         xml_contents.append(uploaded_file)
     return xml_contents
 
+def buscar_tag(tag, no):
+    """Busca tag ignorando namespace"""
+    for elemento in no.iter():
+        if elemento.tag.split('}')[-1] == tag:
+            return elemento
+    return None
+
 def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
     try:
-        tree = ET.parse(xml_io)
-        root = tree.getroot()
-        ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
-        infNfe = root.find('.//nfe:infNFe', ns)
-        ide = root.find('.//nfe:ide', ns)
-        nNF = int(ide.find('nfe:nNF', ns).text)
-        emit = root.find('.//nfe:emit', ns)
-        emit_cnpj = limpar_cnpj(emit.find('nfe:CNPJ', ns).text)
-        dest = root.find('.//nfe:dest', ns)
-        dest_cnpj = limpar_cnpj(dest.find('nfe:CNPJ', ns).text)
+        # Limpeza agressiva de namespaces para não falhar na leitura
+        xml_str = xml_io.read().decode('utf-8', errors='ignore')
+        xml_str = re.sub(r'\sxmlns(:\w+)?="[^"]+"', '', xml_str)
+        root = ET.fromstring(xml_str)
+        
+        ide = buscar_tag('ide', root)
+        nNF = int(buscar_tag('nNF', ide).text)
+        
+        emit = buscar_tag('emit', root)
+        emit_cnpj = limpar_cnpj(buscar_tag('CNPJ', emit).text)
+        
+        dest = buscar_tag('dest', root)
+        dest_cnpj = limpar_cnpj(buscar_tag('CNPJ', dest).text)
+        
+        # Auditoria de Terceiros e Filiais
         if dest_cnpj != cnpj_alvo or obter_raiz_cnpj(emit_cnpj) == obter_raiz_cnpj(cnpj_alvo):
             return []
+
         itens = []
-        for det in root.findall('.//nfe:det', ns):
-            prod = det.find('nfe:prod', ns)
-            imp = det.find('nfe:imposto', ns)
-            vProd = float(prod.find('nfe:vProd', ns).text)
-            vIPI = float(imp.find('.//nfe:vIPI', ns).text) if imp.find('.//nfe:vIPI', ns) is not None else 0.0
-            icms = imp.find('.//nfe:ICMS/*')
+        for det in root.findall('.//det'):
+            prod = buscar_tag('prod', det)
+            imp = buscar_tag('imposto', det)
+            vProd = float(buscar_tag('vProd', prod).text)
+            vIPI = float(buscar_tag('vIPI', imp).text) if buscar_tag('vIPI', imp) is not None else 0.0
+            icms = buscar_tag('ICMS', imp)
+            
+            # Pega o primeiro nó dentro de ICMS (ICMS00, ICMS40, etc)
+            icms_detalhe = list(icms)[0] if icms is not None else None
+            
             itens.append({
-                'Nota': nNF, 'Emitente': emit.find('nfe:xNome', ns).text, 
-                'UF_Origem': emit.find('nfe:enderEmit/nfe:UF', ns).text,
-                'cProd_XML': str(prod.find('nfe:cProd', ns).text).strip(),
-                'CFOP_XML': str(prod.find('nfe:CFOP', ns).text).strip(),
+                'Nota': nNF, 
+                'Emitente': buscar_tag('xNome', emit).text, 
+                'UF_Origem': buscar_tag('UF', emit).text,
+                'cProd_XML': str(buscar_tag('cProd', prod).text).strip(),
+                'CFOP_XML': str(buscar_tag('CFOP', prod).text).strip(),
                 'Base_Integral': round(vProd + vIPI, 2),
-                'Origem_CST': icms.find('nfe:orig', ns).text if icms is not None else "0",
-                'V_ST_Nota': float(icms.find('nfe:vICMSST', ns).text) if icms is not None and icms.find('nfe:vICMSST', ns) is not None else 0.0
+                'Origem_CST': buscar_tag('orig', icms_detalhe).text if buscar_tag('orig', icms_detalhe) is not None else "0",
+                'V_ST_Nota': float(buscar_tag('vICMSST', icms_detalhe).text) if buscar_tag('vICMSST', icms_detalhe) is not None else 0.0
             })
         return itens
     except: return []
@@ -200,9 +218,9 @@ def main():
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Configure o CNPJ na lateral para liberar a auditoria.<br>• O sistema filtra automaticamente as filiais do grupo.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Informe o CNPJ para validar as notas de terceiros.<br>• Notas do mesmo grupo econômico (filiais) são ignoradas.</p></div>', unsafe_allow_html=True)
         with col2:
-            st.markdown('<div class="instrucoes-card"><h3>📊 Resultados</h3><p>• Auditoria item a item de DIFAL e Antecipação.<br>• Relatório final com inteligência de CST e Base Dupla.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="instrucoes-card"><h3>📊 Auditoria</h3><p>• Cálculo automático de DIFAL e Antecipação.<br>• Identificação de origem (CST) e IPI na base.</p></div>', unsafe_allow_html=True)
 
     with st.sidebar:
         st.markdown("### 🔍 Configuração")
@@ -210,11 +228,10 @@ def main():
         regime_input = st.selectbox("REGIME FISCAL", ["Simples Nacional", "Regime Normal"])
         uf_input = st.selectbox("UF DE DESTINO", list(ALIQUOTAS_INTERNAS.keys()), index=25)
         cnpj_limpo = limpar_cnpj(cnpj_input)
-        st.divider()
 
     if cnpj_limpo and len(cnpj_limpo) == 14:
-        up_ger = st.file_uploader("1. Subir relatório GERENCIAL (CSV/Opcional)", type=['csv'])
-        up_xml = st.file_uploader("2. Arraste seus XMLs ou ZIP aqui:", accept_multiple_files=True)
+        up_ger = st.file_uploader("1. Relatório GERENCIAL (CSV/Opcional)", type=['csv'])
+        up_xml = st.file_uploader("2. XMLs ou ZIPs aqui:", accept_multiple_files=True)
 
         if up_xml:
             if st.button("🚀 INICIAR APURAÇÃO DIAMANTE"):
@@ -223,8 +240,8 @@ def main():
                     for x_io in extrair_xmls_recursivo(f):
                         all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo))
                 
-                df_final = pd.DataFrame(all_itens)
-                if not df_final.empty:
+                if all_itens:
+                    df_final = pd.DataFrame(all_itens)
                     usar_g = False
                     if up_ger:
                         try:
@@ -245,9 +262,9 @@ def main():
                     df_final.to_excel(out, index=False)
                     st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
                 else:
-                    st.warning("Nenhum XML de terceiros encontrado.")
+                    st.warning("Nenhum XML de terceiros válido foi encontrado para o CNPJ informado.")
     else:
-        st.warning("👈 Insira o CNPJ de 14 dígitos na barra lateral para liberar o envio de arquivos.")
+        st.warning("👈 Insira o CNPJ de 14 dígitos na barra lateral para começar.")
 
 if __name__ == "__main__":
     main()
