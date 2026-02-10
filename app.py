@@ -76,7 +76,7 @@ def aplicar_estilo_rihanna_original():
             border: 2px solid #FFFFFF !important;
             font-weight: 800 !important;
             border-radius: 15px !important;
-            box-shadow: 0 0 15px rgba(255, 105, 180, 0.4) !important;
+            box-shadow: 0 0 15px rgba(255, 105, 180, 0.6) !important;
             text-transform: uppercase;
             width: 100% !important;
             transition: all 0.4s ease !important;
@@ -84,7 +84,7 @@ def aplicar_estilo_rihanna_original():
         
         div.stDownloadButton > button:hover {
             transform: translateY(-5px) !important;
-            box-shadow: 0 0 30px rgba(255, 105, 180, 0.8) !important;
+            box-shadow: 0 0 30px rgba(255, 105, 180, 1) !important;
         }
 
         /* Inputs e Cards */
@@ -104,8 +104,6 @@ def aplicar_estilo_rihanna_original():
         }
         </style>
     """, unsafe_allow_html=True)
-
-aplicar_estilo_rihanna_original()
 
 # --- LÓGICA DE NEGÓCIO DIZIMEIRO 6.0 ---
 ALIQUOTAS_INTERNAS = {
@@ -195,62 +193,61 @@ def calcular_dizimo_final(row, regime, uf_destino, usar_gerencial):
         return round(max(0, row['Base_Integral'] * (aliq_int - aliq_inter)), 2), "Antecipação"
     except: return 0.0, "Erro"
 
-# --- INTERFACE ---
-st.markdown("<h1>💰 O DIZIMEIRO</h1>", unsafe_allow_html=True)
+def main():
+    aplicar_estilo_rihanna_original()
+    st.markdown("<h1>💰 O DIZIMEIRO</h1>", unsafe_allow_html=True)
 
-with st.container():
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Configure o CNPJ na lateral para liberar a auditoria.<br>• O sistema filtra automaticamente as filiais do grupo.</p></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="instrucoes-card"><h3>📊 Resultados</h3><p>• Auditoria item a item de DIFAL e Antecipação.<br>• Relatório final com inteligência de CST e Base Dupla.</p></div>', unsafe_allow_html=True)
+    with st.container():
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Configure o CNPJ na lateral para liberar a auditoria.<br>• O sistema filtra automaticamente as filiais do grupo.</p></div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="instrucoes-card"><h3>📊 Resultados</h3><p>• Auditoria item a item de DIFAL e Antecipação.<br>• Relatório final com inteligência de CST e Base Dupla.</p></div>', unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown("### 🔍 Configuração")
-    cnpj_input = st.text_input("CNPJ DO CLIENTE", placeholder="00.000.000/0001-00")
-    regime_input = st.selectbox("REGIME FISCAL", ["Simples Nacional", "Regime Normal"])
-    uf_input = st.selectbox("UF DE DESTINO", list(ALIQUOTAS_INTERNAS.keys()), index=25)
-    cnpj_limpo = limpar_cnpj(cnpj_input)
-    st.divider()
-    st.markdown("💡 *Assim que inserir o CNPJ, os campos de arquivo aparecerão abaixo.*")
+    with st.sidebar:
+        st.markdown("### 🔍 Configuração")
+        cnpj_input = st.text_input("CNPJ DO CLIENTE", placeholder="00.000.000/0001-00")
+        regime_input = st.selectbox("REGIME FISCAL", ["Simples Nacional", "Regime Normal"])
+        uf_input = st.selectbox("UF DE DESTINO", list(ALIQUOTAS_INTERNAS.keys()), index=25)
+        cnpj_limpo = limpar_cnpj(cnpj_input)
+        st.divider()
 
-# TRAVA REMOVIDA: Basta ter algo no campo de CNPJ para exibir os uploaders
-if cnpj_limpo:
-    up_ger = st.file_uploader("1. Subir relatório GERENCIAL (CSV/Opcional)", type=['csv'])
-    up_xml = st.file_uploader("2. Arraste seus XMLs ou ZIP aqui:", accept_multiple_files=True)
+    if cnpj_limpo and len(cnpj_limpo) == 14:
+        up_ger = st.file_uploader("1. Subir relatório GERENCIAL (CSV/Opcional)", type=['csv'])
+        up_xml = st.file_uploader("2. Arraste seus XMLs ou ZIP aqui:", accept_multiple_files=True)
 
-    if up_xml:
-        if st.button("🚀 INICIAR APURAÇÃO DIAMANTE"):
-            all_itens = []
-            for f in up_xml:
-                for x_io in extrair_xmls_recursivo(f):
-                    all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo))
-            
-            df_final = pd.DataFrame(all_itens)
-            if not df_final.empty:
-                usar_g = False
-                if up_ger:
-                    try:
-                        dg = pd.read_csv(up_ger, sep=';', header=None, encoding='latin-1')
-                        dg = dg.rename(columns={0:'Nota_Ger', 6:'CFOP_Ger', 7:'cProd_Ger'})
-                        df_final = df_final.merge(dg[['Nota_Ger', 'cProd_Ger', 'CFOP_Ger']], left_on=['Nota', 'cProd_XML'], right_on=['Nota_Ger', 'cProd_Ger'], how='left')
-                        usar_g = True
-                    except: st.error("Erro no Gerencial.")
+        if up_xml:
+            if st.button("🚀 INICIAR APURAÇÃO DIAMANTE"):
+                all_itens = []
+                for f in up_xml:
+                    for x_io in extrair_xmls_recursivo(f):
+                        all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo))
                 
-                res = df_final.apply(lambda r: calcular_dizimo_final(r, regime_input, uf_input, usar_g), axis=1)
-                df_final['DIFAL_Recolher'] = [x[0] for x in res]
-                df_final['Analise'] = [x[1] for x in res]
-                
-                st.markdown(f"<h2>TOTAL A RECOLHER: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
-                st.dataframe(df_final[df_final['DIFAL_Recolher'] > 0][['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
-                
-                out = io.BytesIO()
-                df_final.to_excel(out, index=False)
-                st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
-            else:
-                st.warning("Nenhum XML de terceiros encontrado.")
-else:
-    st.warning("👈 Insira o CNPJ na barra lateral para liberar o envio de arquivos.")
+                df_final = pd.DataFrame(all_itens)
+                if not df_final.empty:
+                    usar_g = False
+                    if up_ger:
+                        try:
+                            dg = pd.read_csv(up_ger, sep=';', header=None, encoding='latin-1')
+                            dg = dg.rename(columns={0:'Nota_Ger', 6:'CFOP_Ger', 7:'cProd_Ger'})
+                            df_final = df_final.merge(dg[['Nota_Ger', 'cProd_Ger', 'CFOP_Ger']], left_on=['Nota', 'cProd_XML'], right_on=['Nota_Ger', 'cProd_Ger'], how='left')
+                            usar_g = True
+                        except: st.error("Erro no Gerencial.")
+                    
+                    res = df_final.apply(lambda r: calcular_dizimo_final(r, regime_input, uf_input, usar_g), axis=1)
+                    df_final['DIFAL_Recolher'] = [x[0] for x in res]
+                    df_final['Analise'] = [x[1] for x in res]
+                    
+                    st.markdown(f"<h2>TOTAL A RECOLHER: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
+                    st.dataframe(df_final[df_final['DIFAL_Recolher'] > 0][['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
+                    
+                    out = io.BytesIO()
+                    df_final.to_excel(out, index=False)
+                    st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
+                else:
+                    st.warning("Nenhum XML de terceiros encontrado.")
+    else:
+        st.warning("👈 Insira o CNPJ de 14 dígitos na barra lateral para liberar o envio de arquivos.")
 
 if __name__ == "__main__":
     main()
