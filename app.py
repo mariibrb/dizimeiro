@@ -150,24 +150,17 @@ def buscar_tag(tag, no):
 
 def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
     try:
-        # Limpeza agressiva de namespaces para não falhar na leitura
         xml_str = xml_io.read().decode('utf-8', errors='ignore')
         xml_str = re.sub(r'\sxmlns(:\w+)?="[^"]+"', '', xml_str)
         root = ET.fromstring(xml_str)
-        
         ide = buscar_tag('ide', root)
         nNF = int(buscar_tag('nNF', ide).text)
-        
         emit = buscar_tag('emit', root)
         emit_cnpj = limpar_cnpj(buscar_tag('CNPJ', emit).text)
-        
         dest = buscar_tag('dest', root)
         dest_cnpj = limpar_cnpj(buscar_tag('CNPJ', dest).text)
-        
-        # Auditoria de Terceiros e Filiais
         if dest_cnpj != cnpj_alvo or obter_raiz_cnpj(emit_cnpj) == obter_raiz_cnpj(cnpj_alvo):
             return []
-
         itens = []
         for det in root.findall('.//det'):
             prod = buscar_tag('prod', det)
@@ -175,10 +168,7 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
             vProd = float(buscar_tag('vProd', prod).text)
             vIPI = float(buscar_tag('vIPI', imp).text) if buscar_tag('vIPI', imp) is not None else 0.0
             icms = buscar_tag('ICMS', imp)
-            
-            # Pega o primeiro nó dentro de ICMS (ICMS00, ICMS40, etc)
             icms_detalhe = list(icms)[0] if icms is not None else None
-            
             itens.append({
                 'Nota': nNF, 
                 'Emitente': buscar_tag('xNome', emit).text, 
@@ -256,10 +246,29 @@ def main():
                     df_final['Analise'] = [x[1] for x in res]
                     
                     st.markdown(f"<h2>TOTAL A RECOLHER: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
-                    st.dataframe(df_final[df_final['DIFAL_Recolher'] > 0][['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
                     
+                    # Tabela visível com os dados que possuem valor a recolher
+                    df_view = df_final[df_final['DIFAL_Recolher'] > 0].copy()
+                    st.dataframe(df_view[['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
+                    
+                    # Preparação do Excel com abas solicitadas
                     out = io.BytesIO()
-                    df_final.to_excel(out, index=False)
+                    with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+                        # Aba 1: Listagem completa (Diamante)
+                        df_final.to_excel(writer, sheet_name='LISTAGEM_AUDITORIA', index=False)
+                        
+                        # Aba 2: Somatório por Nota (DIFAL a Recolher consolidado)
+                        df_resumo_nota = df_final.groupby(['Nota', 'Emitente', 'UF_Origem'])['DIFAL_Recolher'].sum().reset_index()
+                        df_resumo_nota = df_resumo_nota[df_resumo_nota['DIFAL_Recolher'] > 0]
+                        df_resumo_nota.to_excel(writer, sheet_name='RESUMO_POR_NOTA', index=False)
+                        
+                        # Formatação básica para o Excel
+                        workbook = writer.book
+                        header_format = workbook.add_format({'bold': True, 'bg_color': '#FF69B4', 'font_color': 'white', 'border': 1})
+                        
+                        for sheet in writer.sheets.values():
+                            sheet.conditional_format('A1:Z1', {'type': 'no_blanks', 'format': header_format})
+
                     st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
                 else:
                     st.warning("Nenhum XML de terceiros válido foi encontrado para o CNPJ informado.")
