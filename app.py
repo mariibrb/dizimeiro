@@ -6,7 +6,7 @@ import re
 import zipfile
 import unicodedata
 
-# --- CONFIGURAÇÃO E ESTILO (DESIGN UNIFICADO E TRAVADO) ---
+# --- CONFIGURAÇÃO E ESTILO (DESIGN RIHANNA ORIGINAL - UNIFICADO E TRAVADO) ---
 st.set_page_config(page_title="DIZIMEIRO", layout="wide", page_icon="💰")
 
 def aplicar_estilo_rihanna_original():
@@ -14,7 +14,10 @@ def aplicar_estilo_rihanna_original():
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;800&family=Plus+Jakarta+Sans:wght@400;700&display=swap');
 
-        header, [data-testid="stHeader"] { display: none !important; }
+        /* Limpeza de Header e Sidebar */
+        header, [data-testid="stHeader"], .stDeployButton { display: none !important; }
+        [data-testid="sidebar-close"], [data-testid="collapsedControl"] { display: none !important; }
+        
         .stApp { 
             background: radial-gradient(circle at top right, #FFDEEF 0%, #F8F9FA 100%) !important; 
         }
@@ -26,14 +29,24 @@ def aplicar_estilo_rihanna_original():
             max-width: 400px !important;
         }
 
-        [data-testid="stSidebar"] div.stButton > button { width: 100% !important; }
+        /* Tipografia Montserrat */
+        * {
+            font-family: 'Montserrat', sans-serif !important;
+        }
 
+        /* Títulos */
+        h1, h2, h3 {
+            font-weight: 800 !important;
+            color: #FF69B4 !important;
+            text-align: center;
+        }
+
+        /* Botões Estilo Mercador (Brancos com Hover Rosa) */
         div.stButton > button {
             color: #6C757D !important; 
             background-color: #FFFFFF !important; 
             border: 1px solid #DEE2E6 !important;
             border-radius: 15px !important;
-            font-family: 'Montserrat', sans-serif !important;
             font-weight: 800 !important;
             height: 60px !important;
             text-transform: uppercase;
@@ -47,6 +60,7 @@ def aplicar_estilo_rihanna_original():
             color: #FF69B4 !important;
         }
 
+        /* Uploader Tracejado Rosa */
         [data-testid="stFileUploader"] { 
             border: 2px dashed #FF69B4 !important; 
             border-radius: 20px !important;
@@ -54,24 +68,25 @@ def aplicar_estilo_rihanna_original():
             padding: 20px !important;
         }
 
+        /* Botão de Download Rosa Neon */
         div.stDownloadButton > button {
             background-color: #FF69B4 !important; 
             color: white !important; 
             border: 2px solid #FFFFFF !important;
-            font-weight: 700 !important;
+            font-weight: 800 !important;
             border-radius: 15px !important;
-            box-shadow: 0 0 15px rgba(255, 105, 180, 0.3) !important;
+            box-shadow: 0 0 15px rgba(255, 105, 180, 0.4) !important;
             text-transform: uppercase;
             width: 100% !important;
+            transition: all 0.4s ease !important;
+        }
+        
+        div.stDownloadButton > button:hover {
+            transform: translateY(-5px) !important;
+            box-shadow: 0 0 30px rgba(255, 105, 180, 0.8) !important;
         }
 
-        h1, h2, h3 {
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 800;
-            color: #FF69B4 !important;
-            text-align: center;
-        }
-
+        /* Inputs e Cards */
         .stTextInput>div>div>input {
             border: 2px solid #FFDEEF !important;
             border-radius: 10px !important;
@@ -84,19 +99,14 @@ def aplicar_estilo_rihanna_original():
             padding: 20px;
             border-left: 5px solid #FF69B4;
             margin-bottom: 20px;
-            min-height: 280px;
-        }
-        
-        /* Omitir Keyboard Double e setas */
-        [data-testid="sidebar-close"], [data-testid="collapsedControl"] { 
-            display: none !important; 
+            min-height: 200px;
         }
         </style>
     """, unsafe_allow_html=True)
 
 aplicar_estilo_rihanna_original()
 
-# --- LÓGICA DE NEGÓCIO DIZIMEIRO 6.0 (MECANISMO PRESERVADO) ---
+# --- LÓGICA DE NEGÓCIO DIZIMEIRO 6.0 (MECANISMO INTEGRAL) ---
 ALIQUOTAS_INTERNAS = {
     'AC': 19.0, 'AL': 19.0, 'AM': 20.0, 'AP': 18.0, 'BA': 20.5, 'CE': 20.0, 'DF': 20.0,
     'ES': 17.0, 'GO': 19.0, 'MA': 22.0, 'MG': 18.0, 'MS': 17.0, 'MT': 17.0, 'PA': 19.0,
@@ -144,8 +154,11 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
         emit_cnpj = limpar_cnpj(emit.find('nfe:CNPJ', ns).text)
         dest = root.find('.//nfe:dest', ns)
         dest_cnpj = limpar_cnpj(dest.find('nfe:CNPJ', ns).text)
+        
+        # Auditoria de Terceiros e Filiais
         if dest_cnpj != cnpj_alvo or obter_raiz_cnpj(emit_cnpj) == obter_raiz_cnpj(cnpj_alvo):
             return []
+
         itens = []
         for det in root.findall('.//nfe:det', ns):
             prod = det.find('nfe:prod', ns)
@@ -188,27 +201,23 @@ def calcular_dizimo_final(row, regime, uf_destino, usar_gerencial):
 st.markdown("<h1>💰 O DIZIMEIRO</h1>", unsafe_allow_html=True)
 
 with st.container():
-    m_col1, m_col2 = st.columns(2)
-    with m_col1:
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown("""
         <div class="instrucoes-card">
-            <h3>📖 Regras do Reino</h3>
-            <ol>
-                <li><b>CNPJ Alvo:</b> Informe o CNPJ na lateral para filtrar notas de terceiros e filiais.</li>
-                <li><b>XMLs:</b> Arraste seus arquivos XML ou pastas ZIP (Matriosca).</li>
-                <li><b>Auditória:</b> O sistema valida a Origem (CST) e aplica a alíquota correta (4%, 7% ou 12%).</li>
-            </ol>
+            <h3>📖 Regras de Auditoria</h3>
+            <p>• <b>CST/Origem:</b> Análise automática de produtos importados (4%).<br>
+            • <b>Filtro de Filiais:</b> Notas do mesmo grupo econômico são excluídas.<br>
+            • <b>Base com IPI:</b> O imposto federal entra na base para Uso e Consumo.</p>
         </div>
         """, unsafe_allow_html=True)
-    with m_col2:
+    with col2:
         st.markdown("""
         <div class="instrucoes-card">
-            <h3>📊 O que será obtido?</h3>
-            <ul>
-                <li><b>DIFAL/Antecipação:</b> Cálculo item a item baseado na finalidade.</li>
-                <li><b>Filtro de Filiais:</b> Notas do mesmo grupo econômico são expurgadas.</li>
-                <li><b>Base Integral:</b> O IPI é incluído na base de cálculo para Uso e Consumo.</li>
-            </ul>
+            <h3>📊 Entrega de Valor</h3>
+            <p>• <b>DIFAL/Antecipação:</b> Apuração precisa por item de mercadoria.<br>
+            • <b>Relatório Diamante:</b> Excel formatado com fórmulas e resumos.<br>
+            • <b>Gerencial:</b> Cruzamento opcional por código de produto.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -217,22 +226,21 @@ st.markdown("---")
 with st.sidebar:
     st.markdown("### 🔍 Configuração")
     cnpj_input = st.text_input("CNPJ DO CLIENTE", placeholder="00.000.000/0001-00")
-    regime_input = st.selectbox("REGIME TRIBUTÁRIO", ["Simples Nacional", "Regime Normal"])
+    regime_input = st.selectbox("REGIME FISCAL", ["Simples Nacional", "Regime Normal"])
     uf_input = st.selectbox("UF DE DESTINO", list(ALIQUOTAS_INTERNAS.keys()), index=25)
     cnpj_limpo = limpar_cnpj(cnpj_input)
     st.divider()
     btn_iniciar = st.button("🚀 INICIAR APURAÇÃO DIAMANTE")
 
 if cnpj_limpo and len(cnpj_limpo) == 14:
-    up_ger = st.file_uploader("1. Suba o relatório GERENCIAL (Opcional)", type=['csv'])
+    up_ger = st.file_uploader("1. Subir relatório GERENCIAL (CSV/Opcional)", type=['csv'])
     up_xml = st.file_uploader("2. Arraste seus XMLs ou ZIP aqui:", accept_multiple_files=True)
 
     if up_xml and btn_iniciar:
         all_itens = []
-        with st.status("💎 Analisando impostos...", expanded=True):
-            for f in up_xml:
-                for x_io in extrair_xmls_recursivo(f):
-                    all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo))
+        for f in up_xml:
+            for x_io in extrair_xmls_recursivo(f):
+                all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo))
         
         df_final = pd.DataFrame(all_itens)
         if not df_final.empty:
@@ -256,4 +264,4 @@ if cnpj_limpo and len(cnpj_limpo) == 14:
             df_final.to_excel(out, index=False)
             st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
 else:
-    st.warning("👈 Insira o CNPJ de 14 dígitos na barra lateral para começar.")
+    st.warning("👈 Insira o CNPJ na barra lateral para começar.")
