@@ -143,105 +143,110 @@ def calcular_dizimo_final(row, regime, uf_destino, usar_gerencial):
 def main():
     st.set_page_config(page_title="Dizimeiro 6.0", layout="wide")
 
-    # --- ESTILIZAÇÃO RIHANNA ---
+    # --- ESTILIZAÇÃO RIHANNA (FOCADA E RIGOROSA) ---
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800&display=swap');
         
-        /* Fundo e Header */
+        /* Fundo Radial e Limpeza */
         .stApp {
-            background: radial-gradient(circle at top right, #FFDEEF 0%, #F8F9FA 100%);
+            background: radial-gradient(circle at top right, #FFDEEF 0%, #F8F9FA 100%) !important;
         }
         header, .stDeployButton {
             display: none !important;
         }
 
-        /* Tipografia Global */
+        /* Tipografia Montserrat 800 em TUDO */
         * {
             font-family: 'Montserrat', sans-serif !important;
             font-weight: 800 !important;
         }
 
-        /* Título h1 */
+        /* Título Rosa Vibrante */
         h1 {
             color: #FF69B4 !important;
             text-align: center !important;
-            font-size: 3rem !important;
-            padding-bottom: 2rem !important;
+            font-size: 3.5rem !important;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
         }
 
-        /* Inputs e Selects */
-        .stTextInput input, .stSelectbox div[data-baseweb="select"] {
+        /* Campos de Entrada Branco Puro */
+        .stTextInput input, .stSelectbox div[data-baseweb="select"], .stSidebar {
             background-color: #FFFFFF !important;
             border-radius: 12px !important;
             border: 1px solid #FFDEEF !important;
         }
+        
+        /* Forçar Sidebar Branca (Sem cinza) */
+        section[data-testid="stSidebar"] {
+            background-color: #FFFFFF !important;
+        }
 
-        /* Uploader */
-        section[data-testid="stFileUploadDropzone"] {
+        /* Zona de Upload Tracejada */
+        [data-testid="stFileUploadDropzone"] {
             background-color: #FFFFFF !important;
             border: 2px dashed #FF69B4 !important;
             border-radius: 12px !important;
         }
         
         /* Botão Browse Files */
-        section[data-testid="stFileUploadDropzone"] button {
+        [data-testid="stFileUploadDropzone"] button {
             background-color: #FF69B4 !important;
             color: white !important;
             font-size: 0.8rem !important;
             text-transform: none !important;
             border-radius: 8px !important;
         }
-        section[data-testid="stFileUploadDropzone"] button::first-letter {
+        [data-testid="stFileUploadDropzone"] button::first-letter {
             text-transform: uppercase;
         }
 
-        /* Botões de Download e Ação */
+        /* Botões Rosa Neon com Sombra Neon Suave */
         .stButton button, .stDownloadButton button {
             background-color: #FF69B4 !important;
             color: white !important;
             width: 100% !important;
             border: none !important;
             border-radius: 12px !important;
-            padding: 0.75rem !important;
+            padding: 1rem !important;
             text-transform: uppercase !important;
-            box-shadow: 0 4px 15px rgba(255, 105, 180, 0.3) !important;
+            box-shadow: 0 0 15px rgba(255, 105, 180, 0.6) !important;
             transition: all 0.3s ease !important;
         }
         .stButton button:hover, .stDownloadButton button:hover {
             transform: translateY(-3px) !important;
-            box-shadow: 0 6px 20px rgba(255, 105, 180, 0.5) !important;
+            box-shadow: 0 0 25px rgba(255, 105, 180, 0.9) !important;
         }
 
         /* Cards de Instrução */
-        .instruction-card {
-            background: rgba(255, 255, 255, 0.7);
+        .rihanna-card {
+            background: rgba(255, 255, 255, 0.95);
             border-left: 5px solid #FF69B4;
             padding: 1.5rem;
-            border-radius: 8px;
+            border-radius: 12px;
             margin-bottom: 1rem;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         }
         </style>
     """, unsafe_allow_html=True)
 
     st.markdown("<h1>💰 O DIZIMEIRO</h1>", unsafe_allow_html=True)
 
-    # Estrutura de Tela: Cards de Instrução
     col_inst1, col_inst2 = st.columns(2)
     with col_inst1:
-        st.markdown('<div class="instruction-card">📜 <b>Passo 1:</b> Configure seu CNPJ e Regime na barra lateral para filtrar notas de terceiros e calcular a base correta.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rihanna-card">📜 <b>PASSO 1:</b> CONFIGURE SEU CNPJ E REGIME NA BARRA LATERAL PARA FILTRAR NOTAS DE TERCEIROS E CALCULAR A BASE CORRETA.</div>', unsafe_allow_html=True)
     with col_inst2:
-        st.markdown('<div class="instruction-card">📁 <b>Passo 2:</b> Suba seus arquivos XML ou ZIP (Matriosca). O sistema ignora automaticamente notas de suas filiais.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rihanna-card">📁 <b>PASSO 2:</b> SUBA SEUS ARQUIVOS XML OU ZIP (MATRIOSCA). O SISTEMA IGNORA AUTOMATICAMENTE NOTAS DE SUAS FILIAIS.</div>', unsafe_allow_html=True)
 
     with st.sidebar:
-        st.markdown("<h2 style='color:#FF69B4;'>REINO FISCAL</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color:#FF69B4; text-align:center;'>REINO FISCAL</h2>", unsafe_allow_html=True)
         cnpj_input = st.text_input("Seu CNPJ (Destinatário)")
         meu_regime = st.selectbox("Regime Tributário", ["Simples Nacional", "Regime Normal"])
         minha_uf = st.selectbox("UF de Destino", list(ALIQUOTAS_INTERNAS.keys()), index=25)
         cnpj_alvo = limpar_cnpj(cnpj_input)
 
-    up_ger = st.file_uploader("📂 Relatório Gerencial (Opcional)", type=['csv'])
-    up_files = st.file_uploader("📁 XMLs ou ZIPs (Matriosca)", type=['xml', 'zip'], accept_multiple_files=True)
+    up_ger = st.file_uploader("📂 RELATÓRIO GERENCIAL (OPCIONAL)", type=['csv'])
+    up_files = st.file_uploader("📁 XMLS OU ZIPS (MATRIOSCA)", type=['xml', 'zip'], accept_multiple_files=True)
 
     if up_files and cnpj_alvo:
         try:
@@ -252,7 +257,7 @@ def main():
             
             df_final = pd.DataFrame(all_xml_itens)
             if df_final.empty:
-                st.warning("Nenhum XML de terceiros (externo ao grupo) encontrado para este CNPJ.")
+                st.warning("NENHUM XML DE TERCEIROS (EXTERNO AO GRUPO) ENCONTRADO PARA ESTE CNPJ.")
                 return
 
             usar_ger = False
@@ -265,19 +270,19 @@ def main():
                     df_final = df_final.merge(df_ger[['Nota_Ger', 'cProd_Ger', 'CFOP_Ger', 'Desc_Ger']], 
                                             left_on=['Nota', 'cProd_XML'], right_on=['Nota_Ger', 'cProd_Ger'], how='left')
                     usar_ger = True
-                except: st.warning("Erro ao ler Gerencial.")
+                except: st.warning("ERRO AO LER GERENCIAL.")
 
             res = df_final.apply(lambda r: calcular_dizimo_final(r, meu_regime, minha_uf, usar_ger), axis=1)
             df_final['DIFAL_Recolher'] = [x[0] for x in res]
             df_final['Analise'] = [x[1] for x in res]
 
-            st.markdown(f"<h2 style='text-align:center; color:#FF69B4;'>TOTAL: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align:center; color:#FF69B4;'>TOTAL A RECOLHER: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
             st.dataframe(df_final[df_final['DIFAL_Recolher'] > 0][['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
             
             out = io.BytesIO()
             df_final.to_excel(out, index=False)
             st.download_button("📥 BAIXAR AUDITORIA COMPLETA", out.getvalue(), "Auditoria_Dizimeiro_Rihanna.xlsx")
-        except Exception as e: st.error(f"Erro: {e}")
+        except Exception as e: st.error(f"ERRO: {e}")
 
 if __name__ == "__main__":
     main()
