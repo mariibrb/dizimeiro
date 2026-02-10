@@ -1,0 +1,5 @@
+# Bibliotecas base para a ferramenta Dizimeiro
+streamlit
+pandas
+openpyxl
+xlsxwriter
