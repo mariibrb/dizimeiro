@@ -7,7 +7,7 @@ import zipfile
 import unicodedata
 
 # --- CONFIGURAÇÕES DO PERSONAGEM ---
-# Nome: Dizimeiro (Versão Estável com Correção de Encoding e Cruzamento)
+# Nome: Dizimeiro (Versão Anti-Erro de Conversão)
 
 ALIQUOTAS_INTERNAS = {
     'AC': 19.0, 'AL': 19.0, 'AM': 20.0, 'AP': 18.0, 'BA': 20.5, 'CE': 20.0, 'DF': 20.0,
@@ -21,13 +21,29 @@ ESTADOS_BASE_DUPLA = ['MG', 'PR', 'RS', 'SC', 'SP', 'BA', 'PE', 'GO', 'MS', 'AL'
 def normalizar_texto(txt):
     if pd.isna(txt): return ""
     txt = str(txt)
-    # Remove acentos e caracteres especiais para comparação robusta
     txt = unicodedata.normalize('NFKD', txt).encode('ASCII', 'ignore').decode('ASCII')
     return txt.upper().strip()
 
 def limpar_cnpj(texto):
     if pd.isna(texto): return ""
     return re.sub(r'\D', '', str(texto)).strip()
+
+def converter_valor_ptbr(valor_str):
+    """Converte strings no formato 1.234,56 ou 'Valor Contabil' para float com segurança"""
+    if pd.isna(valor_str) or valor_str == "": return 0.0
+    v = str(valor_str).strip()
+    # Se a string contiver letras (como o nome da coluna), retorna 0 para ser ignorado
+    if re.search('[a-zA-Z]', v): return 0.0
+    try:
+        # Se tiver ponto e vírgula (formato BR: 1.234,56)
+        if ',' in v and '.' in v:
+            v = v.replace('.', '').replace(',', '.')
+        # Se tiver apenas vírgula (formato: 1234,56)
+        elif ',' in v:
+            v = v.replace(',', '.')
+        return float(v)
+    except:
+        return 0.0
 
 def extrair_xmls_recursivo(uploaded_file):
     xml_contents = []
@@ -140,61 +156,52 @@ def main():
         cnpj_alvo = limpar_cnpj(cnpj_input)
 
     up_csv = st.file_uploader("📂 Relatório CSV", type=['csv'])
-    up_files = st.file_uploader("📁 XMLs ou ZIPs (Matriosca)", type=['xml', 'zip'], accept_multiple_files=True)
+    up_files = st.file_uploader("📁 XMLs ou ZIPs", type=['xml', 'zip'], accept_multiple_files=True)
 
     if up_csv and up_files and cnpj_alvo:
         try:
-            # Tratamento de encoding para o CSV
+            # Tratamento de encoding
             raw_data = up_csv.read()
-            try:
-                content = raw_data.decode('utf-8')
-            except:
-                content = raw_data.decode('latin-1')
+            try: content = raw_data.decode('utf-8')
+            except: content = raw_data.decode('latin-1')
             
-            df_rel = pd.read_csv(io.StringIO(content), sep=';', skiprows=5)
-            
-            # Normalização de colunas para evitar KeyError
+            # Lendo CSV com tratamento de colunas vazias
+            df_rel = pd.read_csv(io.StringIO(content), sep=';', skiprows=5, on_bad_lines='skip')
             df_rel.columns = [normalizar_texto(c) for c in df_rel.columns]
             
-            # Identificação dinâmica de colunas
+            # Mapeamento dinâmico
             col_vcontabil = next((c for c in df_rel.columns if "VALOR CONTABIL" in c), None)
             col_nota = next((c for c in df_rel.columns if c == "NOTA"), None)
             col_cfop = next((c for c in df_rel.columns if c == "CFOP"), None)
             col_fornecedor = next((c for c in df_rel.columns if "FORNECEDOR" in c), None)
 
             if not col_vcontabil or not col_nota or not col_cfop:
-                st.error(f"Colunas essenciais não encontradas. Colunas lidas: {df_rel.columns.tolist()}")
+                st.error("Colunas essenciais não encontradas no CSV.")
                 return
 
-            # Limpeza do Relatório
+            # Limpeza e Conversão Segura
             df_rel = df_rel[df_rel[col_nota].notna() & (~df_rel[col_fornecedor].str.contains('TOTAL', na=False, case=False))]
+            # Aqui está o pulo do gato: conversão com função personalizada que ignora lixo
+            df_rel['V_Contabil_Rel'] = df_rel[col_vcontabil].apply(converter_valor_ptbr)
             df_rel['Nota_Rel'] = pd.to_numeric(df_rel[col_nota], errors='coerce')
             df_rel['CFOP_Limpo'] = df_rel[col_cfop].astype(str).str.extract(r'(\d{4})')
-            df_rel['V_Contabil_Rel'] = df_rel[col_vcontabil].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).astype(float)
             
-            # Processamento de XMLs
-            base_xml = []
+            # Filtro de linhas com valor zerado (lixo ou cabeçalhos repetidos)
+            df_rel = df_rel[df_rel['V_Contabil_Rel'] > 0]
+            
+            # XMLs
             all_xml_ios = []
-            for f in up_files:
-                all_xml_ios.extend(extrair_xmls_recursivo(f))
-                
-            for xml_io in all_xml_ios:
-                base_xml.extend(extrair_dados_xml_agrupados(xml_io))
+            for f in up_files: all_xml_ios.extend(extrair_xmls_recursivo(f))
+            
+            base_xml = []
+            for xml_io in all_xml_ios: base_xml.extend(extrair_dados_xml_agrupados(xml_io))
             
             df_xml = pd.DataFrame(base_xml)
-            
             if not df_xml.empty:
                 df_xml['CNPJ_Dest_Limpo'] = df_xml['CNPJ_Dest'].apply(limpar_cnpj)
-                
-                # Debug de CNPJ caso não encontre nada
-                if cnpj_alvo not in df_xml['CNPJ_Dest_Limpo'].unique():
-                    st.warning(f"CNPJ digitado ({cnpj_alvo}) não encontrado nos XMLs.")
-                    st.info(f"CNPJs encontrados nos arquivos: {df_xml['CNPJ_Dest_Limpo'].unique().tolist()}")
-
                 df_xml_filtered = df_xml[df_xml['CNPJ_Dest_Limpo'] == cnpj_alvo].copy()
 
                 if not df_xml_filtered.empty:
-                    # Cruzamento Nota + CFOP
                     df_final = df_xml_filtered.merge(
                         df_rel[['Nota_Rel', 'CFOP_Limpo', 'V_Contabil_Rel']], 
                         left_on=['Nota', 'CFOP'], 
@@ -207,7 +214,7 @@ def main():
                         df_final['DIFAL_Recolher'] = [x[0] for x in res_list]
                         df_final['Logica'] = [x[1] for x in res_list]
 
-                        st.success(f"Dízimo calculado para {len(df_final)} registros!")
+                        st.success(f"Dízimo calculado!")
                         st.dataframe(df_final[['Nota', 'Fornecedor', 'CFOP', 'DIFAL_Recolher', 'Logica']])
                         st.metric("Total a Recolher", f"R$ {df_final['DIFAL_Recolher'].sum():,.2f}")
                         
@@ -215,11 +222,11 @@ def main():
                         df_final.to_excel(output, index=False, engine='xlsxwriter')
                         st.download_button("📥 Baixar Auditoria", output.getvalue(), "auditoria_dizimeiro.xlsx")
                     else:
-                        st.error("XMLs lidos, mas não casaram com o Relatório (Verifique Nota e CFOP).")
+                        st.error("Cruzamento vazio. Verifique se os CFOPs no relatório batem com os XMLs.")
                 else:
-                    st.error(f"Nenhum XML com o CNPJ {cnpj_alvo} foi encontrado.")
+                    st.error(f"CNPJ {cnpj_alvo} não encontrado nos XMLs.")
             else:
-                st.error("Não foi possível extrair dados dos arquivos XML.")
+                st.error("Erro ao ler XMLs.")
         except Exception as e:
             st.error(f"Erro no processamento: {e}")
 
