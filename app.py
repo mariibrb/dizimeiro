@@ -52,6 +52,7 @@ def aplicar_estilo_rihanna_original():
             height: 60px !important;
             text-transform: uppercase;
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+            width: 100%;
         }
 
         div.stButton > button:hover {
@@ -80,6 +81,7 @@ def aplicar_estilo_rihanna_original():
             text-transform: uppercase;
             width: 100% !important;
             transition: all 0.4s ease !important;
+            height: 60px !important;
         }
         
         div.stDownloadButton > button:hover {
@@ -142,7 +144,6 @@ def extrair_xmls_recursivo(uploaded_file):
     return xml_contents
 
 def buscar_tag(tag, no):
-    """Busca tag ignorando namespace"""
     for elemento in no.iter():
         if elemento.tag.split('}')[-1] == tag:
             return elemento
@@ -154,11 +155,9 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo, chaves_ja_processadas):
         xml_str = re.sub(r'\sxmlns(:\w+)?="[^"]+"', '', xml_str)
         root = ET.fromstring(xml_str)
         
-        # Obter Chave de Acesso para evitar duplicidade
         infNfe = buscar_tag('infNFe', root)
         chave = infNfe.attrib.get('Id', '')[3:] if infNfe is not None else ""
         
-        # Bloqueio de duplicidade real
         if not chave or chave in chaves_ja_processadas:
             return []
             
@@ -172,9 +171,7 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo, chaves_ja_processadas):
         if dest_cnpj != cnpj_alvo or obter_raiz_cnpj(emit_cnpj) == obter_raiz_cnpj(cnpj_alvo):
             return []
 
-        # Marcar chave como processada
         chaves_ja_processadas.add(chave)
-
         itens = []
         for det in root.findall('.//det'):
             prod = buscar_tag('prod', det)
@@ -184,29 +181,28 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo, chaves_ja_processadas):
             icms = buscar_tag('ICMS', imp)
             icms_detalhe = list(icms)[0] if icms is not None else None
             itens.append({
-                'Nota': nNF, 
-                'Chave': chave,
-                'Emitente': buscar_tag('xNome', emit).text, 
+                'Nota': nNF, 'Chave': chave, 'Emitente': buscar_tag('xNome', emit).text, 
                 'UF_Origem': buscar_tag('UF', emit).text,
                 'cProd_XML': str(buscar_tag('cProd', prod).text).strip(),
                 'CFOP_XML': str(buscar_tag('CFOP', prod).text).strip(),
                 'Base_Integral': round(vProd + vIPI, 2),
                 'Origem_CST': buscar_tag('orig', icms_detalhe).text if buscar_tag('orig', icms_detalhe) is not None else "0",
-                'V_ST_Nota': float(buscar_tag('vICMSST', icms_detalhe).text) if buscar_tag('vICMSST', icms_detalhe) is not None else 0.0
+                'V_ST_Nota': float(buscar_tag('vICMSST', icms_detalhe).text) if icms_detalhe is not None and buscar_tag('vICMSST', icms_detalhe) is not None else 0.0
             })
         return itens
     except: return []
 
-def calcular_dizimo_final(row, regime, uf_destino, usar_gerencial):
+def calcular_dizimo_final(row, regime, uf_destino, usar_ger):
     try:
         if row['V_ST_Nota'] > 0.1: return 0.0, "Isento (ST na Nota)"
         if row['UF_Origem'] == uf_destino: return 0.0, "Isento (Interna)"
         aliq_inter = 0.04 if str(row['Origem_CST']) in ['1', '2', '3', '8'] else (0.07 if row['UF_Origem'] in SUL_SUDESTE_ORIGEM and uf_destino not in SUL_SUDESTE_ORIGEM else 0.12)
         aliq_int = ALIQUOTAS_INTERNAS[uf_destino] / 100
+        
         if regime == "Regime Normal":
-            cfops = ['1556', '2556', '1407', '2407', '1551', '2551', '1406', '2406']
-            cfop_check = row['CFOP_Ger'] if usar_gerencial else row['CFOP_XML']
-            if str(cfop_check) not in cfops: return 0.0, "CFOP não tributável"
+            cfops_alvo = ['1556', '2556', '1407', '2407', '1551', '2551', '1406', '2406']
+            cfop_check = row['CFOP_Ger'] if usar_ger else row['CFOP_XML']
+            if str(cfop_check) not in cfops_alvo: return 0.0, "CFOP não tributável"
             if uf_destino in ESTADOS_BASE_DUPLA:
                 v_ori = round(row['Base_Integral'] * aliq_inter, 2)
                 base_ch = (row['Base_Integral'] - v_ori) / (1 - aliq_int)
@@ -223,9 +219,9 @@ def main():
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Bloqueio de Duplicidade: Notas repetidas são ignoradas.<br>• Notas de filiais não entram no cálculo.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Notas de filiais são ignoradas.<br>• Notas duplicadas são bloqueadas pela chave.</p></div>', unsafe_allow_html=True)
         with col2:
-            st.markdown('<div class="instrucoes-card"><h3>📊 Auditoria</h3><p>• Aba de somatório por nota incluída no Excel.<br>• Cruzamento Inteligente CST/Origem.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="instrucoes-card"><h3>📊 Auditoria</h3><p>• Aba de somatório incluída no Excel.<br>• Cálculo de IPI na base para Uso/Consumo.</p></div>', unsafe_allow_html=True)
 
     with st.sidebar:
         st.markdown("### 🔍 Configuração")
@@ -241,21 +237,21 @@ def main():
         if up_xml:
             if st.button("🚀 INICIAR APURAÇÃO DIAMANTE"):
                 all_itens = []
-                chaves_processadas = set() # Set para travar duplicidade
-                
+                chaves_vistas = set()
                 for f in up_xml:
                     for x_io in extrair_xmls_recursivo(f):
-                        all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo, chaves_processadas))
+                        all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo, chaves_vistas))
                 
                 if all_itens:
                     df_final = pd.DataFrame(all_itens)
-                    usar_g = False
+                    usar_ger = False
                     if up_ger:
                         try:
-                            dg = pd.read_csv(up_ger, sep=';', header=None, encoding='latin-1')
+                            dg = pd.read_csv(up_ger, sep=';', header=None, encoding='latin-1', on_bad_lines='skip')
                             dg = dg.rename(columns={0:'Nota_Ger', 6:'CFOP_Ger', 7:'cProd_Ger'})
+                            dg['Nota_Ger'] = pd.to_numeric(dg['Nota_Ger'], errors='coerce')
                             df_final = df_final.merge(dg[['Nota_Ger', 'cProd_Ger', 'CFOP_Ger']], left_on=['Nota', 'cProd_XML'], right_on=['Nota_Ger', 'cProd_Ger'], how='left')
-                            usar_g = True
+                            usar_ger = True
                         except: st.error("Erro no Gerencial.")
                     
                     res = df_final.apply(lambda r: calcular_dizimo_final(r, regime_input, uf_input, usar_ger), axis=1)
@@ -263,27 +259,24 @@ def main():
                     df_final['Analise'] = [x[1] for x in res]
                     
                     st.markdown(f"<h2>TOTAL A RECOLHER: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
-                    
-                    df_view = df_final[df_final['DIFAL_Recolher'] > 0].copy()
+                    df_view = df_final[df_final['DIFAL_Recolher'] > 0.01].copy()
                     st.dataframe(df_view[['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
                     
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
                         df_final.to_excel(writer, sheet_name='LISTAGEM_AUDITORIA', index=False)
-                        
-                        # Aba de somatório por nota solicitada
-                        df_resumo_nota = df_final.groupby(['Nota', 'Emitente', 'UF_Origem'])['DIFAL_Recolher'].sum().reset_index()
-                        df_resumo_nota = df_resumo_nota[df_resumo_nota['DIFAL_Recolher'] > 0]
-                        df_resumo_nota.to_excel(writer, sheet_name='RESUMO_POR_NOTA', index=False)
+                        df_resumo = df_final.groupby(['Nota', 'Emitente'])['DIFAL_Recolher'].sum().reset_index()
+                        df_resumo = df_resumo[df_resumo['DIFAL_Recolher'] > 0]
+                        df_resumo.to_excel(writer, sheet_name='RESUMO_POR_NOTA', index=False)
                         
                         workbook = writer.book
-                        header_format = workbook.add_format({'bold': True, 'bg_color': '#FF69B4', 'font_color': 'white', 'border': 1})
-                        for sheet in writer.sheets.values():
-                            sheet.conditional_format('A1:Z1', {'type': 'no_blanks', 'format': header_format})
-
+                        f_head = workbook.add_format({'bold':True, 'bg_color':'#FF69B4', 'font_color':'white', 'border':1})
+                        for sh in writer.sheets.values():
+                            sh.conditional_format('A1:Z1', {'type': 'no_blanks', 'format': f_head})
+                    
                     st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
                 else:
-                    st.warning("Nenhum XML novo ou de terceiros válido foi encontrado.")
+                    st.warning("Nenhum XML novo ou de terceiros encontrado.")
     else:
         st.warning("👈 Insira o CNPJ de 14 dígitos na barra lateral para começar.")
 
