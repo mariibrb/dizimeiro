@@ -148,19 +148,33 @@ def buscar_tag(tag, no):
             return elemento
     return None
 
-def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
+def extrair_dados_xml_detalhado(xml_io, cnpj_alvo, chaves_ja_processadas):
     try:
         xml_str = xml_io.read().decode('utf-8', errors='ignore')
         xml_str = re.sub(r'\sxmlns(:\w+)?="[^"]+"', '', xml_str)
         root = ET.fromstring(xml_str)
+        
+        # Obter Chave de Acesso para evitar duplicidade
+        infNfe = buscar_tag('infNFe', root)
+        chave = infNfe.attrib.get('Id', '')[3:] if infNfe is not None else ""
+        
+        # Bloqueio de duplicidade real
+        if not chave or chave in chaves_ja_processadas:
+            return []
+            
         ide = buscar_tag('ide', root)
         nNF = int(buscar_tag('nNF', ide).text)
         emit = buscar_tag('emit', root)
         emit_cnpj = limpar_cnpj(buscar_tag('CNPJ', emit).text)
         dest = buscar_tag('dest', root)
         dest_cnpj = limpar_cnpj(buscar_tag('CNPJ', dest).text)
+        
         if dest_cnpj != cnpj_alvo or obter_raiz_cnpj(emit_cnpj) == obter_raiz_cnpj(cnpj_alvo):
             return []
+
+        # Marcar chave como processada
+        chaves_ja_processadas.add(chave)
+
         itens = []
         for det in root.findall('.//det'):
             prod = buscar_tag('prod', det)
@@ -171,6 +185,7 @@ def extrair_dados_xml_detalhado(xml_io, cnpj_alvo):
             icms_detalhe = list(icms)[0] if icms is not None else None
             itens.append({
                 'Nota': nNF, 
+                'Chave': chave,
                 'Emitente': buscar_tag('xNome', emit).text, 
                 'UF_Origem': buscar_tag('UF', emit).text,
                 'cProd_XML': str(buscar_tag('cProd', prod).text).strip(),
@@ -208,9 +223,9 @@ def main():
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Informe o CNPJ para validar as notas de terceiros.<br>• Notas do mesmo grupo econômico (filiais) são ignoradas.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="instrucoes-card"><h3>📖 Regras</h3><p>• Bloqueio de Duplicidade: Notas repetidas são ignoradas.<br>• Notas de filiais não entram no cálculo.</p></div>', unsafe_allow_html=True)
         with col2:
-            st.markdown('<div class="instrucoes-card"><h3>📊 Auditoria</h3><p>• Cálculo automático de DIFAL e Antecipação.<br>• Identificação de origem (CST) e IPI na base.</p></div>', unsafe_allow_html=True)
+            st.markdown('<div class="instrucoes-card"><h3>📊 Auditoria</h3><p>• Aba de somatório por nota incluída no Excel.<br>• Cruzamento Inteligente CST/Origem.</p></div>', unsafe_allow_html=True)
 
     with st.sidebar:
         st.markdown("### 🔍 Configuração")
@@ -226,9 +241,11 @@ def main():
         if up_xml:
             if st.button("🚀 INICIAR APURAÇÃO DIAMANTE"):
                 all_itens = []
+                chaves_processadas = set() # Set para travar duplicidade
+                
                 for f in up_xml:
                     for x_io in extrair_xmls_recursivo(f):
-                        all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo))
+                        all_itens.extend(extrair_dados_xml_detalhado(x_io, cnpj_limpo, chaves_processadas))
                 
                 if all_itens:
                     df_final = pd.DataFrame(all_itens)
@@ -241,37 +258,32 @@ def main():
                             usar_g = True
                         except: st.error("Erro no Gerencial.")
                     
-                    res = df_final.apply(lambda r: calcular_dizimo_final(r, regime_input, uf_input, usar_g), axis=1)
+                    res = df_final.apply(lambda r: calcular_dizimo_final(r, regime_input, uf_input, usar_ger), axis=1)
                     df_final['DIFAL_Recolher'] = [x[0] for x in res]
                     df_final['Analise'] = [x[1] for x in res]
                     
                     st.markdown(f"<h2>TOTAL A RECOLHER: R$ {df_final['DIFAL_Recolher'].sum():,.2f}</h2>", unsafe_allow_html=True)
                     
-                    # Tabela visível com os dados que possuem valor a recolher
                     df_view = df_final[df_final['DIFAL_Recolher'] > 0].copy()
                     st.dataframe(df_view[['Nota', 'Emitente', 'Analise', 'DIFAL_Recolher']])
                     
-                    # Preparação do Excel com abas solicitadas
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                        # Aba 1: Listagem completa (Diamante)
                         df_final.to_excel(writer, sheet_name='LISTAGEM_AUDITORIA', index=False)
                         
-                        # Aba 2: Somatório por Nota (DIFAL a Recolher consolidado)
+                        # Aba de somatório por nota solicitada
                         df_resumo_nota = df_final.groupby(['Nota', 'Emitente', 'UF_Origem'])['DIFAL_Recolher'].sum().reset_index()
                         df_resumo_nota = df_resumo_nota[df_resumo_nota['DIFAL_Recolher'] > 0]
                         df_resumo_nota.to_excel(writer, sheet_name='RESUMO_POR_NOTA', index=False)
                         
-                        # Formatação básica para o Excel
                         workbook = writer.book
                         header_format = workbook.add_format({'bold': True, 'bg_color': '#FF69B4', 'font_color': 'white', 'border': 1})
-                        
                         for sheet in writer.sheets.values():
                             sheet.conditional_format('A1:Z1', {'type': 'no_blanks', 'format': header_format})
 
                     st.download_button("📥 BAIXAR RELATÓRIO DIAMANTE", out.getvalue(), "Auditoria_Dizimeiro.xlsx")
                 else:
-                    st.warning("Nenhum XML de terceiros válido foi encontrado para o CNPJ informado.")
+                    st.warning("Nenhum XML novo ou de terceiros válido foi encontrado.")
     else:
         st.warning("👈 Insira o CNPJ de 14 dígitos na barra lateral para começar.")
 
